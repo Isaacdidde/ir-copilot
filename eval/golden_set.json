@@ -1,0 +1,6 @@
+
+[
+  {"query": "encoded powershell command then outbound connection to unknown ip", "expected_techniques": ["T1059.001", "T1071.001"]},
+  {"query": "phishing email with malicious macro-enabled attachment", "expected_techniques": ["T1566.001", "T1204.002"]},
+  {"query": "scheduled task created for persistence after reboot", "expected_techniques": ["T1053.005"]}
+]
