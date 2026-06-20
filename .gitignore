@@ -1,0 +1,18 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# Vector DB
+chroma_db/
+
+# Raw cloned knowledge sources (large, re-cloneable)
+data/raw/cti/
+data/raw/sigma/
+
+# Keep your own playbooks though
+!data/raw/playbooks/
+
+# OS/editor
+.DS_Store
+.vscode/

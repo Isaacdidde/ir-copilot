@@ -1,114 +1,67 @@
 # src/generate.py
+import re
+
 import requests
 from src.retrieve import retrieve
 
-OLLAMA_URL = "http://localhost:11434/api/generate"
-DEFAULT_MODEL = "llama3.1:8b"
+SYSTEM_TEMPLATE = """You are a SOC incident response assistant. Answer ONLY using the context below.
+You may ONLY cite these source types, and only when they actually appear in the context: 
+MITRE ATT&CK, Sigma detection rules, or Internal runbook (your own playbooks).
+NEVER cite external frameworks (NIST, SANS, CIS, etc.) unless their exact text appears in the context below — 
+if no relevant source exists, say "no matching internal guidance found" instead of citing one.
 
-SYSTEM_TEMPLATE = """You are a SOC incident response assistant. 
-
-STRICT RULES:
-- Answer ONLY using the context provided below. 
-- Do NOT cite any source that does not appear in the context.
-- If the context lacks enough information, say: "Insufficient context to assess this fully."
-- Every recommended action MUST include a citation in brackets from the context only.
-  Valid citation formats: [ATT&CK T1059.001] or [Sigma: Rule Title] or [Playbook: Title]
-
-=== CONTEXT START ===
+Context:
 {context}
-=== CONTEXT END ===
 
-Incident Description:
+Incident description:
 {query}
 
-Respond strictly in this format — no extra sections:
-
-1. LIKELY ATT&CK TECHNIQUES
-   - <Technique ID> (<tactic>): <brief reason>
-
-2. RISK ASSESSMENT
-   <2-3 sentences: severity, blast radius, urgency>
-
-3. RECOMMENDED NEXT STEPS
-   - <Action> [Source]
-   - <Action> [Source]
-
-4. INCIDENT SUMMARY
-   <2-3 sentence draft for ticket/escalation>
+Respond in this format:
+1. Likely ATT&CK techniques (with IDs)
+2. Risk assessment
+3. Recommended next steps (cite source for each)
+4. A 2-3 sentence draft incident summary
 """
 
-def build_context(chunks: list[dict]) -> str:
-    """Format retrieved chunks into a clean numbered context block."""
-    sections = []
-    for i, chunk in enumerate(chunks, 1):
-        meta = chunk["metadata"]
-        source_label = (
-            f"ATT&CK {meta.get('technique_id', '')}"
-            if meta.get("source") == "MITRE ATT&CK"
-            else f"Sigma: {meta.get('title', '')}"
-            if meta.get("source") == "Sigma"
-            else f"Playbook: {meta.get('playbook', '')}"
-        )
-        sections.append(f"[{i}] {source_label}\n{chunk['text']}")
-    return "\n\n---\n\n".join(sections)
+FIELD_LABELS = {
+    "alert_name": "Alert Name",
+    "host": "Host",
+    "user": "User",
+    "process": "Process",
+    "command_line": "Command Line",
+    "file_path": "File Path / Hash",
+    "network": "Network Activity",
+    "indicators": "Observed Indicators",
+    "notes": "Additional Notes",
+}
 
+def format_incident(fields: dict) -> str:
+    """Turn structured incident fields into a normalized text block.
+    Empty fields are dropped — this keeps the embedded query clean and
+    avoids diluting retrieval with blank labels."""
+    lines = []
+    for key, label in FIELD_LABELS.items():
+        value = (fields.get(key) or "").strip()
+        if value:
+            lines.append(f"{label}: {value}")
+    return "\n".join(lines)
 
-def call_ollama(prompt: str, model: str, timeout: int = 120) -> str:
-    """Call Ollama API with error handling and timeout."""
-    try:
-        response = requests.post(
-            OLLAMA_URL,
-            json={"model": model, "prompt": prompt, "stream": False},
-            timeout=timeout
-        )
-        response.raise_for_status()
-        return response.json().get("response", "").strip()
-    except requests.exceptions.ConnectionError:
-        return "ERROR: Cannot connect to Ollama. Is it running? Run: ollama serve"
-    except requests.exceptions.Timeout:
-        return f"ERROR: Ollama timed out after {timeout}s. Try a smaller model like phi3:mini."
-    except requests.exceptions.HTTPError as e:
-        return f"ERROR: Ollama returned HTTP {e.response.status_code}. Check model name."
-    except (KeyError, ValueError):
-        return "ERROR: Unexpected response format from Ollama."
-
-
-def generate_answer(
-    query: str,
-    model_name: str = DEFAULT_MODEL,
-    k: int = 5
-) -> dict:
-    """
-    Retrieve relevant chunks and generate a grounded incident response.
-
-    Returns:
-        {
-            "answer": str,
-            "sources": list[dict],
-            "query": str,
-            "chunks_used": int,
-            "error": bool
-        }
-    """
+def generate_answer(query, model_name="llama3.1:8b", k=5):
     chunks = retrieve(query, k=k)
-
-    if not chunks:
-        return {
-            "answer": "No relevant context found in the knowledge base for this query.",
-            "sources": [],
-            "query": query,
-            "chunks_used": 0,
-            "error": True
-        }
-
-    context = build_context(chunks)
+    context = "\n\n---\n\n".join(c["text"] for c in chunks)
     prompt = SYSTEM_TEMPLATE.format(context=context, query=query)
-    answer = call_ollama(prompt, model=model_name)
 
-    return {
-        "answer": answer,
-        "sources": [c["metadata"] for c in chunks],
-        "query": query,
-        "chunks_used": len(chunks),
-        "error": answer.startswith("ERROR:")
-    }
+    response = requests.post(
+        "http://localhost:11434/api/generate",
+        json={"model": model_name, "prompt": prompt, "stream": False}
+    )
+    answer = response.json()["response"]
+
+    return {"answer": answer, "sources": [c["metadata"] for c in chunks]}
+
+ALLOWED_SOURCES = {"MITRE ATT&CK", "Sigma", "Internal runbook"}
+
+def check_source_citations(answer_text: str) -> list:
+    """Flag any cited source that isn't one of the three actually-ingested source types."""
+    cited = re.findall(r"\[(?:Source|Playbook):\s*([^\]]+)\]", answer_text)
+    return [c for c in cited if not any(allowed in c for allowed in ALLOWED_SOURCES)]
