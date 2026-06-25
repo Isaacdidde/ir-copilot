@@ -6,38 +6,39 @@ st.set_page_config(page_title="IR Copilot")
 st.title("Incident Response Copilot")
 st.caption("Free, local, RAG-grounded — no data leaves your machine")
 
-with st.form("incident_form"):
-    col1, col2 = st.columns(2)
-    with col1:
-        alert_name = st.text_input("Alert Name", placeholder="e.g. Suspicious PowerShell Execution")
-        host = st.text_input("Affected Host", placeholder="e.g. WS-105")
-        user = st.text_input("User", placeholder="e.g. jsmith")
-        process = st.text_input("Process / File Name", placeholder="e.g. invoice.exe")
-    with col2:
-        command_line = st.text_input("Command Line", placeholder="e.g. powershell.exe -enc ...")
-        file_path = st.text_input("File Path / Hash", placeholder="e.g. SHA256 or full path")
-        network = st.text_input("Network Activity", placeholder="e.g. 185.x.x.x:443")
-        indicators = st.text_input("Observed Indicators", placeholder="e.g. encoded command, outbound connection")
+incident = st.text_area(
+    "Paste the alert, log snippet, or describe what happened",
+    height=160,
+    placeholder="e.g. Host WS-105 ran powershell.exe -enc... then connected to 185.x.x.x:443. "
+                 "Defender flagged Trojan:Win32/Agent."
+)
 
-    notes = st.text_area("Additional Notes / Raw Alert", height=100,
-                          placeholder="Paste raw SIEM alert text or anything not covered above")
+if st.button("Analyze") and incident:
+    with st.spinner("Extracting details and analyzing..."):
+        resp = requests.post("http://localhost:8000/query", json={"raw_text": incident}, timeout=120)
 
-    submitted = st.form_submit_button("Analyze")
+    if resp.status_code != 200 or not resp.text:
+        st.error(f"Backend returned an unusable response (status {resp.status_code}). "
+                  f"Check the uvicorn terminal for errors.")
+        st.code(resp.text[:500])
+        st.stop()
 
-if submitted:
-    fields = {
-        "alert_name": alert_name, "host": host, "user": user, "process": process,
-        "command_line": command_line, "file_path": file_path,
-        "network": network, "indicators": indicators, "notes": notes,
-    }
-    if not any(fields.values()):
-        st.warning("Fill in at least one field before analyzing.")
-    else:
-        with st.spinner("Retrieving context and reasoning..."):
-            resp = requests.post("http://localhost:8000/query", json=fields)
-            data = resp.json()
+    data = resp.json()
 
-        st.markdown(data["answer"])
-        with st.expander(f"Sources used ({len(data['sources'])})"):
-            for s in data["sources"]:
-                st.json(s)
+    st.markdown(data["answer"])
+
+    flagged = data.get("flagged_citations", [])
+    quotes = data.get("unverified_quotes", [])
+    if flagged or quotes:
+        with st.expander("⚠️ Possible grounding issues — verify before acting on these", expanded=True):
+            for c in flagged:
+                st.write(f"- Citation not matched to anything retrieved: `{c}`")
+            for q in quotes:
+                st.write(f'- Quoted text not found in any source: "{q}"')
+
+    with st.expander(f"Sources used ({len(data['sources'])})"):
+        for s in data["sources"]:
+            st.json(s)
+
+    with st.expander("What the system understood from your input"):
+        st.json(data.get("extracted_fields", {}))

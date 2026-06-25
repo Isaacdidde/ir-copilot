@@ -1,0 +1,12 @@
+chromadb
+sentence-transformers
+langchain
+langchain-community
+langchain-text-splitters
+fastapi
+uvicorn
+streamlit
+pyyaml
+requests
+rank-bm25
+tqdm

@@ -1,23 +1,28 @@
 # src/api.py
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-from typing import Optional
+import requests
 from src.generate import generate_answer, format_incident
+from src.extract import extract_fields
+from src.llm import OllamaError
 
 app = FastAPI(title="IR Copilot API")
 
-class IncidentFields(BaseModel):
-    alert_name: Optional[str] = ""
-    host: Optional[str] = ""
-    user: Optional[str] = ""
-    process: Optional[str] = ""
-    command_line: Optional[str] = ""
-    file_path: Optional[str] = ""
-    network: Optional[str] = ""
-    indicators: Optional[str] = ""
-    notes: Optional[str] = ""
+class IncidentInput(BaseModel):
+    raw_text: str
 
 @app.post("/query")
-def query_copilot(fields: IncidentFields):
-    incident_description = format_incident(fields.dict())
-    return generate_answer(incident_description)
+def query_copilot(payload: IncidentInput):
+    try:
+        fields = extract_fields(payload.raw_text)
+        incident_description = format_incident(fields)
+        result = generate_answer(incident_description)
+    except requests.exceptions.ConnectionError:
+        raise HTTPException(
+            status_code=503,
+            detail="Local LLM unreachable at localhost:11434. Is Ollama running? Try: ollama serve"
+        )
+    except OllamaError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    result["extracted_fields"] = fields
+    return result
