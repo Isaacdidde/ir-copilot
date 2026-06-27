@@ -1,12 +1,15 @@
 chromadb
 sentence-transformers
+# cross-encoder reranker — sentence-transformers also provides CrossEncoder
+# models from HuggingFace Hub; no separate package needed.
 langchain
 langchain-community
 langchain-text-splitters
 fastapi
-uvicorn
+uvicorn[standard]
 streamlit
 pyyaml
 requests
 rank-bm25
 tqdm
+pandas
