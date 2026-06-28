@@ -1,62 +1,7 @@
+
+
 [
-  {
-    "query": "Alert Name: Encoded PowerShell Execution\nHost: WS-105\nUser: jsmith\nProcess: powershell.exe\nCommand Line: powershell.exe -enc SGVsbG8gV29ybGQ=\nNetwork Activity: 185.23.41.6:443",
-    "expected_techniques": ["T1059.001", "T1071.001"],
-    "expected_source_types": ["attack", "sigma"],
-    "severity": "high"
-  },
-  {
-    "query": "Alert Name: Suspicious Macro Execution\nHost: LAPTOP-09\nUser: asmith\nProcess: WINWORD.EXE\nCommand Line: WINWORD.EXE /n /dde\nFile Path / Hash: invoice_q3.docm\nIndicators: Spawned cmd.exe child process",
-    "expected_techniques": ["T1566.001", "T1204.002"],
-    "expected_source_types": ["attack", "sigma"],
-    "severity": "high"
-  },
-  {
-    "query": "Alert Name: Scheduled Task Created for Persistence\nHost: SRV-DC01\nProcess: schtasks.exe\nCommand Line: schtasks /create /tn UpdateTask /tr C:\\ProgramData\\update.exe /sc onlogon",
-    "expected_techniques": ["T1053.005"],
-    "expected_source_types": ["attack"],
-    "severity": "medium"
-  },
-  {
-    "query": "Alert Name: Credential Dumping Detected\nHost: DC01\nProcess: lsass.exe\nIndicators: LSASS memory read by non-system process rundll32.exe; Mimikatz strings in memory",
-    "expected_techniques": ["T1003.001"],
-    "expected_source_types": ["attack", "sigma"],
-    "severity": "critical"
-  },
-  {
-    "query": "Alert Name: Pass-the-Hash Lateral Movement\nHost: WS-210\nUser: DOMAIN\\svc_backup\nNetwork Activity: 10.10.1.45:445 SMB connection\nIndicators: NTLM authentication with known hash from credential dump",
-    "expected_techniques": ["T1550.002", "T1021.002"],
-    "expected_source_types": ["attack"],
-    "severity": "critical"
-  },
-  {
-    "query": "Alert Name: Persistence via Registry Run Key\nHost: WS-55\nProcess: reg.exe\nCommand Line: reg add HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run /v Updater /t REG_SZ /d C:\\Users\\Public\\update.exe",
-    "expected_techniques": ["T1547.001"],
-    "expected_source_types": ["attack", "sigma"],
-    "severity": "medium"
-  },
-  {
-    "query": "Alert Name: WMI Remote Execution\nHost: SRV-APP02\nProcess: wmiprvse.exe\nCommand Line: wmic /node:10.10.1.12 process call create cmd.exe\nIndicators: Remote WMI execution from non-admin workstation",
-    "expected_techniques": ["T1047"],
-    "expected_source_types": ["attack", "sigma"],
-    "severity": "high"
-  },
-  {
-    "query": "Alert Name: Data Staged for Exfiltration\nHost: FILE-SRV01\nProcess: rar.exe\nCommand Line: rar.exe a -r -hp C:\\Windows\\Temp\\archive.rar C:\\Shares\\Finance\\*\nFile Path / Hash: C:\\Windows\\Temp\\archive.rar",
-    "expected_techniques": ["T1074.001", "T1560.001"],
-    "expected_source_types": ["attack"],
-    "severity": "critical"
-  },
-  {
-    "query": "Alert Name: DNS Tunneling Detected\nHost: WS-88\nNetwork Activity: High-frequency DNS queries to randomised subdomains of evil-domain.com\nIndicators: DNS query volume 10x baseline; encoded strings in query names",
-    "expected_techniques": ["T1071.004"],
-    "expected_source_types": ["attack", "sigma"],
-    "severity": "high"
-  },
-  {
-    "query": "Alert Name: Suspicious Service Installation\nHost: WS-31\nProcess: sc.exe\nCommand Line: sc create EvilSvc binpath= C:\\Windows\\System32\\malicious.dll type= own start= auto\nIndicators: Service binary not signed",
-    "expected_techniques": ["T1543.003"],
-    "expected_source_types": ["attack", "sigma"],
-    "severity": "high"
-  }
+  {"query": "encoded powershell command then outbound connection to unknown ip", "expected_techniques": ["T1059.001", "T1071.001"]},
+  {"query": "phishing email with malicious macro-enabled attachment", "expected_techniques": ["T1566.001", "T1204.002"]},
+  {"query": "scheduled task created for persistence after reboot", "expected_techniques": ["T1053.005"]}
 ]
