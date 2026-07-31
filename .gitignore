@@ -1,0 +1,36 @@
+# --- Secrets ---
+.env
+*.env.local
+
+# --- Python ---
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+
+# --- Knowledge base (large, regenerated locally) ---
+knowledge/sigma/sigma-repo/
+knowledge/mitre/*.json
+knowledge/nist/*.pdf
+
+# --- Vector store / embeddings / caches ---
+data/chroma/
+embeddings/cache/
+*.sqlite3
+
+# --- Logs ---
+logs/
+*.log
+
+# --- OS / editor cruft ---
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# --- Streamlit ---
+.streamlit/secrets.toml
