@@ -1,0 +1,19 @@
+title: Suspicious LSASS Access (Real Repo Sample)
+id: 7d2e5b3a-real-4b22-8d3c-2b3c4d5e6f7a
+status: stable
+description: Detects processes accessing LSASS memory.
+references:
+    - https://attack.mitre.org/techniques/T1003/001/
+author: Sigma Community
+date: 2019-04-10
+tags:
+    - attack.credential_access
+    - attack.t1003.001
+logsource:
+    category: process_access
+    product: windows
+detection:
+    selection:
+        TargetImage|endswith: '\lsass.exe'
+    condition: selection
+level: critical

@@ -1,0 +1,36 @@
+title: Suspicious Access to LSASS Memory
+id: 7d2e5b3a-2222-4b22-8d3c-2b3c4d5e6f7a
+status: stable
+description: >
+  Detects processes requesting suspicious access rights to lsass.exe, which is commonly
+  associated with credential dumping tools such as Mimikatz.
+references:
+  - https://attack.mitre.org/techniques/T1003/001/
+author: IR-Copilot Sample KB
+date: 2024/01/01
+tags:
+  - attack.credential_access
+  - attack.t1003.001
+logsource:
+  category: process_access
+  product: windows
+  service: sysmon
+detection:
+  selection:
+    TargetImage|endswith: '\lsass.exe'
+    GrantedAccess:
+      - '0x1010'
+      - '0x1410'
+      - '0x1438'
+      - '0x143a'
+      - '0x1fffff'
+  condition: selection
+falsepositives:
+  - Legitimate security/antivirus products performing memory scans
+level: critical
+mitre_technique: T1003.001
+recommended_actions:
+  - Isolate the affected endpoint immediately
+  - Identify the source process and its parent
+  - Preserve a memory image for forensic analysis
+  - Force credential rotation for any accounts active on the host

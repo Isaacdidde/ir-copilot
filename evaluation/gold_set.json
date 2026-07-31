@@ -1,0 +1,14 @@
+[
+  {
+    "query": "We found powershell.exe running with an encoded base64 command spawned from winword.exe, then an outbound connection to an unfamiliar external IP.",
+    "relevant_source_names": ["T1059.001", "Suspicious PowerShell Encoded Command", "PowerShell Investigation"]
+  },
+  {
+    "query": "Multiple file servers show mass file renaming with a new extension and a ransom note appeared. vssadmin.exe was executed with 'delete shadows' shortly before.",
+    "relevant_source_names": ["T1486", "Volume Shadow Copy Deletion via vssadmin or wmic", "Ransomware Response"]
+  },
+  {
+    "query": "EDR flagged a process accessing lsass.exe with suspicious granted access rights on a domain-joined workstation.",
+    "relevant_source_names": ["T1003.001", "Suspicious Access to LSASS Memory"]
+  }
+]

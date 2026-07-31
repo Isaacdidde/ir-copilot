@@ -1,0 +1,32 @@
+<<<<<<< HEAD
+fastapi==0.115.0
+uvicorn[standard]==0.30.6
+pydantic==2.9.2
+pydantic-settings==2.5.2
+httpx==0.27.2
+chromadb==0.5.15
+sentence-transformers==3.1.1
+rank-bm25==0.2.2
+langchain-text-splitters==0.3.0
+PyYAML==6.0.2
+numpy==1.26.4
+streamlit==1.38.0
+requests==2.32.3
+pytest==8.3.3
+=======
+chromadb
+sentence-transformers
+# cross-encoder reranker — sentence-transformers also provides CrossEncoder
+# models from HuggingFace Hub; no separate package needed.
+langchain
+langchain-community
+langchain-text-splitters
+fastapi
+uvicorn[standard]
+streamlit
+pyyaml
+requests
+rank-bm25
+tqdm
+pandas
+>>>>>>> 326706cccf9f786f08d08bf1ba939322089287f0

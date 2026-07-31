@@ -1,0 +1,12 @@
+title: Deprecated Old Rule
+id: 00000000-0000-0000-0000-000000000000
+status: deprecated
+description: This rule is deprecated and should not be indexed by default.
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection:
+        Image|endswith: '\old.exe'
+    condition: selection
+level: low
