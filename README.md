@@ -1,198 +1,249 @@
-<<<<<<< HEAD
-# IR-Copilot — Evidence-Grounded RAG Incident Response Assistant
+# IR-Copilot
 
-IR-Copilot is a production-oriented, retrieval-augmented (RAG) assistant for SOC
-analysts. Given an incident description, it retrieves only the most relevant
-knowledge from a local knowledge base (MITRE ATT&CK, Sigma rules, NIST SP 800-61,
-and internal playbooks) and generates a structured, evidence-cited response.
-It is **not** a chatbot — there is no open-ended conversation, no memory by
-default, and every recommendation must trace back to retrieved evidence.
+**Evidence-grounded, RAG-based incident response assistant for SOC analysts.**
 
-## Why it's built this way
+IR-Copilot takes a plain-language incident description and returns a concise, strictly
+evidence-grounded analysis: what's likely happening, the matching MITRE ATT&CK technique,
+the exact Sigma rules / MITRE entries / NIST guidance / playbooks that support the
+conclusion, and concrete incident response steps — grouped by Identification,
+Containment, Eradication, and Recovery.
 
-- **Low hallucination**: the LLM is only ever shown the top-K compressed,
-  reranked chunks and is instructed to cite a source for every claim. A
-  post-generation guard-rail (`backend/pipeline.py`) strips any MITRE technique
-  the model claims that isn't actually present in the retrieved evidence.
-- **Low token usage**: query expansion is done with a local keyword map (no LLM
-  call), retrieval uses hybrid dense+BM25 search with a cross-encoder reranker
-  to aggressively narrow to Top-5 chunks, context is deduplicated and truncated
-  to a character budget, and embeddings/retrieval results are cached so
-  repeated or unchanged content is never re-processed.
-- **Fast retrieval**: ChromaDB (persistent, local) for dense search, `rank_bm25`
-  for keyword search, fused with a configurable weighting, then reranked with
-  `bge-reranker-base`.
-- **Deterministic confidence score**: the confidence percentage shown to the
-  analyst is computed directly from retrieval signal (rerank/hybrid scores,
-  number of matching source types), not from the LLM — so it's auditable and
-  can't be hallucinated.
+It is deliberately conservative: if the retrieved evidence doesn't confidently match the
+incident, it says so (`insufficient_evidence: true`) instead of guessing. Every claim in
+the response is checked against what was actually retrieved before being shown to the
+analyst — nothing is generated purely from the model's own training knowledge.
 
-## Architecture
+---
+
+## How it works
 
 ```
-backend/        FastAPI app, RAG pipeline, retrieval, embeddings, vector store, LLM client
-frontend/       Streamlit UI (dark theme, cards, badges, progress bars)
-knowledge/      MITRE ATT&CK techniques (JSON), Sigma rules (YAML), NIST summary (Markdown)
-playbooks/      Custom incident response playbooks (Markdown)
-embeddings/     On-disk embedding cache (content-hash keyed)
-data/chroma/    Persistent ChromaDB store
-evaluation/     Recall@K / Precision@K / Faithfulness / Hallucination-rate harness
-tests/          Unit tests (ingestion, cache, LLM JSON parsing)
+Incident description
+        │
+        ▼
+  Hybrid retrieval (dense + BM25) over the knowledge base
+        │
+        ▼
+  Rerank + deterministic confidence scoring
+        │
+        ▼
+  Below threshold? ──► return insufficient-evidence response, no LLM call
+        │
+        ▼ (above threshold)
+  LLM generation (Groq or local Ollama) — strict JSON schema, grounded prompt
+        │
+        ▼
+  Guard-rails (deterministic, not LLM-based):
+    • MITRE mapping must match a retrieved technique ID + name exactly
+    • Evidence citations must correspond to something actually retrieved
+    • Response steps must not be empty when insufficient_evidence=false
+    • If verification strips out all substance, honestly downgrade to
+      insufficient_evidence rather than show a hollow report
+        │
+        ▼
+  Structured response → Streamlit UI
 ```
 
-### Processing pipeline
+**Knowledge base:**
+- **MITRE ATT&CK** — full Enterprise STIX bundle (~700 techniques)
+- **Sigma rules** — SigmaHQ's public detection rule set (~3,700+ rules)
+- **NIST SP 800-61r2** — Computer Security Incident Handling Guide
+- **Internal playbooks** — your own markdown/text playbooks (bring your own)
+
+**Stack:** FastAPI backend, Streamlit frontend, ChromaDB vector store, hybrid dense +
+BM25 retrieval with a BGE reranker, and a pluggable LLM layer (Groq hosted API or local
+Ollama).
+
+---
+
+## Project structure
 
 ```
-Incident text
-   -> Query Expansion (local keyword map, no LLM call)
-   -> Hybrid Retrieval (ChromaDB dense search + BM25 keyword search)
-   -> Metadata Filtering (optional source_type filters)
-   -> Fusion (weighted dense/BM25 combination)
-   -> Deduplication (content-hash based)
-   -> Reranking (bge-reranker-base cross-encoder)
-   -> Context Compression (char budget truncation)
-   -> Deterministic Confidence Scoring
-   -> LLM Generation (JSON-only, evidence-constrained prompt)
-   -> Schema Validation + Hallucination Guard-rail
-   -> Structured IncidentResponse
+ir-copilot/
+├── backend/
+│   ├── main.py              # FastAPI app entrypoint
+│   ├── pipeline.py          # Retrieval → generation → guard-rails orchestration
+│   ├── prompts.py           # System prompt + JSON schema + grounding rules
+│   ├── models.py            # Pydantic schemas (request/response)
+│   ├── llm.py                # Groq / Ollama LLM client
+│   ├── retrieval.py         # Hybrid dense + BM25 retrieval, reranking
+│   ├── embeddings.py        # Embedding model loading + caching
+│   ├── vectorstore.py       # ChromaDB wrapper, indexing
+│   ├── mitre_stix_loader.py
+│   ├── sigma_bulk_loader.py
+│   ├── nist_pdf_loader.py
+│   ├── ingestion.py          # Chunk loading across all sources
+│   └── config.py             # Central settings (env-driven)
+├── frontend/
+│   └── app.py                 # Streamlit UI
+├── knowledge/
+│   ├── mitre/                 # MITRE STIX bundle (not committed — see setup)
+│   ├── sigma/sigma-repo/      # SigmaHQ clone (not committed — see setup)
+│   └── nist/                  # NIST SP 800-61 PDF (not committed — see setup)
+├── playbooks/                  # Your internal playbooks (markdown/text)
+├── .env.example
+├── .gitignore
+└── requirements.txt
 ```
 
-## Requirements
-
-- Python 3.11+
-- [Ollama](https://ollama.com) running locally with a pulled model (default: `llama3.1:8b`)
-- ~2GB disk for the embedding + reranker models on first run (downloaded from
-  Hugging Face the first time `backend/embeddings.py` / `backend/retrieval.py`
-  load them; cached locally afterward, and re-embedding is skipped for unchanged
-  content thereafter)
+---
 
 ## Setup
 
+### 1. Clone the repo
+
 ```bash
-git clone <this-repo> && cd ir-copilot
-cp .env.example .env         # adjust model names / ports as needed
-python3 -m venv .venv && source .venv/bin/activate
+git clone https://github.com/Isaacdidde/ir-copilot.git
+cd ir-copilot
+```
+
+### 2. Create a virtual environment and install dependencies
+
+```bash
+python -m venv .venv
+.venv\Scripts\activate        # Windows
+# source .venv/bin/activate   # macOS/Linux
+
 pip install -r requirements.txt
-
-# In a separate terminal:
-ollama pull llama3.1:8b
-ollama serve
-
-# Then, from the project root:
-./run_local.sh
 ```
 
-This starts:
-- FastAPI backend at `http://localhost:8000` (docs at `/docs`)
-- Streamlit frontend at `http://localhost:8501`
+### 3. Fetch the knowledge base
 
-On backend startup, the knowledge base is automatically indexed into ChromaDB
-(unchanged content is skipped on subsequent restarts thanks to content-hash
-based caching).
+This repo does **not** include the knowledge base or vector store — it's too large for
+git and is fully regenerable. Fetch each source locally:
 
-### Docker
+**Sigma rules:**
+```bash
+git clone https://github.com/SigmaHQ/sigma.git knowledge/sigma/sigma-repo
+```
+
+**MITRE ATT&CK Enterprise STIX bundle:**
+```bash
+curl -o knowledge/mitre/enterprise-attack.json ^
+  https://raw.githubusercontent.com/mitre-attack/attack-stix-data/master/enterprise-attack/enterprise-attack.json
+```
+
+**NIST SP 800-61r2:**
+```bash
+curl -o knowledge/nist/NIST.SP.800-61r2.pdf ^
+  https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-61r2.pdf
+```
+
+**Playbooks:** drop your own incident response playbooks (markdown or text) into
+`playbooks/`. A handful of examples are recommended to start.
+
+### 4. Configure environment variables
 
 ```bash
-docker compose up --build
+copy .env.example .env        # Windows
+# cp .env.example .env        # macOS/Linux
 ```
 
-Pulls/starts Ollama, the FastAPI backend, and the Streamlit frontend as three
-containers. After the stack is up, pull the model into the Ollama container:
+Edit `.env` and set at minimum:
+
+```dotenv
+IRCOPILOT_LLM_PROVIDER=groq
+IRCOPILOT_GROQ_API_KEY=your_key_here     # free tier: https://console.groq.com/keys
+IRCOPILOT_GROQ_MODEL=openai/gpt-oss-20b
+IRCOPILOT_LLM_MAX_TOKENS=2800
+```
+
+Or, to run fully local with no external API calls:
+
+```dotenv
+IRCOPILOT_LLM_PROVIDER=ollama
+IRCOPILOT_OLLAMA_BASE_URL=http://localhost:11434
+IRCOPILOT_LLM_MODEL=llama3.1:8b
+```
+(requires `ollama serve` running locally with the model pulled)
+
+See `.env.example` for the full list of tunable settings — retrieval thresholds,
+top-k, embedding/reranker models, etc.
+
+### 5. Start the backend
 
 ```bash
-docker exec -it ir-copilot-ollama ollama pull llama3.1:8b
+python -m uvicorn backend.main:app --host 0.0.0.0 --port 8000
 ```
 
-## API
+On first startup, this will chunk and index the entire knowledge base into ChromaDB.
+With the full MITRE + Sigma + NIST set (~4,600+ chunks), initial indexing typically
+takes a few minutes. Subsequent restarts skip re-indexing unless the source content
+changed.
 
-| Method | Path           | Description                                      |
-|--------|----------------|---------------------------------------------------|
-| GET    | `/health`      | Liveness check                                     |
-| GET    | `/kb/status`   | Indexed document counts, model names, DB status    |
-| POST   | `/kb/reindex`  | Re-scan knowledge sources; only embeds new/changed |
-| POST   | `/analyze`     | `{"incident_description": "..."}` → structured IR response |
+### 6. Start the frontend
 
-## Adding knowledge
-
-- **MITRE**: add entries to `knowledge/mitre/techniques.json` (or additional
-  `.json` files in that directory) following the existing schema.
-- **Sigma**: drop `.yml`/`.yaml` rule files into `knowledge/sigma/`. Include a
-  `mitre_technique` and `recommended_actions` field so the pipeline can cite
-  and cross-verify them.
-- **NIST / general guidance**: Markdown files in `knowledge/nist/`.
-- **Playbooks**: Markdown files in `playbooks/`.
-
-Call `POST /kb/reindex` (or restart the backend) after adding files. Only
-new or changed content is embedded — existing chunks are detected by content
-hash and skipped.
-
-## Evaluation
+In a separate terminal:
 
 ```bash
-python3 evaluation/evaluate.py
+streamlit run frontend/app.py
 ```
 
-Reports Recall@K, Precision@K, Context Precision, Faithfulness, and
-Hallucination Rate against the hand-labeled cases in `evaluation/gold_set.json`.
-Extend that file with more (query, relevant_source_names) pairs as the
-knowledge base grows.
+Open the URL Streamlit prints (typically `http://localhost:8501`).
 
-## Tests
+---
 
-```bash
-pytest
+## Usage
+
+Paste an incident description into the text box and click **Analyze incident**. Example:
+
+```
+Detected multiple Kerberos ticket-granting service requests (Event ID 4769) using
+RC4 encryption (etype 0x17) for privileged service accounts, requested by a single
+non-privileged user account within a short time window. This pattern is consistent
+with Kerberoasting, an offline password-cracking technique targeting service account
+credentials via their Kerberos service tickets.
 ```
 
-Unit tests cover ingestion/chunking correctness, TTL/LRU cache behavior, and
-LLM JSON-extraction robustness. These run without requiring Ollama or a
-downloaded embedding model. Retrieval- and pipeline-level integration tests
-require network access to Hugging Face (to fetch `BAAI/bge-small-en-v1.5` and
-`BAAI/bge-reranker-base` on first run) and a running Ollama instance.
+The response includes:
+- **Situation Report** — plain-language explanation with a confidence stamp
+- **MITRE ATT&CK Mapping** — technique ID, name, tactic, confidence, evidence source
+- **Evidence Used** — the specific Sigma rules / MITRE entries / NIST sections / playbooks that support the finding
+- **Response Sequence** — concrete steps grouped by Identification → Containment → Eradication → Recovery
+- **Missing Evidence** — what would improve confidence, when applicable
+- **Confidence Assessment** — plain-language reasoning, including any caveats (e.g. a scheduled maintenance window that could indicate a false positive)
 
-## Hallucination-prevention guarantees
+If the retrieved evidence doesn't confidently match the incident, IR-Copilot returns an
+honest **insufficient evidence** response rather than a confident-looking guess.
 
-- The model is only shown retrieved evidence — never asked to answer from
-  general knowledge.
-- Every `mitre_mapping` entry is cross-checked against the technique IDs
-  actually present in the retrieved context; unverified entries are silently
-  dropped and logged.
-- If retrieval confidence falls below `IRCOPILOT_MIN_CONFIDENCE_THRESHOLD`
-  (default 0.55), the LLM is skipped entirely and the app returns an
-  "insufficient evidence" response asking the analyst for more data —
-  it never fabricates a plausible-sounding answer under uncertainty.
-=======
-## Phase 11 — Polish for portfolio
+---
 
-**README structure:**
-1. One-paragraph problem statement (the SOC pain point this solves)
-2. Architecture diagram (you can reuse the structure of the diagrams from this conversation)
-3. Tech stack table — emphasize it's 100% free/local, no API keys required
-4. Setup instructions (copy from this guide)
-5. Eval results table (recall@k before/after tuning)
-6. A real example: paste an incident description and the actual output
-7. Limitations section — be upfront about what hybrid search doesn't solve, what the local LLM struggles with on complex multi-step reasoning, etc. This signals maturity, not weakness.
+## Configuration reference
 
-**Demo:** record a 60–90 second screen capture of typing an incident and getting a grounded response with visible citations — this is what actually gets watched on LinkedIn, far more than a wall of GitHub code.
+Key environment variables (see `.env.example` for the complete list):
 
-**Repo structure:**
-```
-ir-copilot/
-├── data/
-│   ├── raw/            # gitignored except your own playbooks
-│   └── processed/
-├── src/
-│   ├── parse_attack.py
-│   ├── parse_sigma.py
-│   ├── parse_playbooks.py
-│   ├── build_corpus.py
-│   ├── ingest.py
-│   ├── retrieve.py
-│   ├── generate.py
-│   ├── api.py
-│   └── app.py
-├── eval/
-│   ├── golden_set.json
-│   └── run_eval.py
-├── requirements.txt
-└── README.md
->>>>>>> 326706cccf9f786f08d08bf1ba939322089287f0
+| Variable | Purpose |
+|---|---|
+| `IRCOPILOT_LLM_PROVIDER` | `groq` or `ollama` |
+| `IRCOPILOT_GROQ_API_KEY` | Required if using Groq |
+| `IRCOPILOT_LLM_MAX_TOKENS` | Completion token budget — raise if you see `max completion tokens reached` errors |
+| `IRCOPILOT_MIN_CONFIDENCE_THRESHOLD` | Retrieval confidence floor below which the pipeline returns `insufficient_evidence` without calling the LLM. Tune down if using a small/sample knowledge base rather than the full set. |
+| `IRCOPILOT_FINAL_TOP_K` | Number of retrieved chunks passed to the LLM as context |
+
+**Note on Groq's free tier:** the free tier enforces an 8,000 tokens-per-minute limit.
+If you see `400` errors mentioning `rate_limit_exceeded` or `max completion tokens
+reached before generating a valid document`, either raise `IRCOPILOT_LLM_MAX_TOKENS`
+(if generation is being cut off) or reduce `IRCOPILOT_FINAL_TOP_K` / your prompt size
+(if you're hitting the per-minute cap), or space out requests.
+
+---
+
+## Known issues
+
+- ChromaDB's PostHog telemetry occasionally logs harmless
+  `Failed to send telemetry event... capture() takes 1 positional argument but 3 were
+  given` warnings on startup. This is a version mismatch in ChromaDB's telemetry client
+  and does not affect functionality — safe to ignore, or disable telemetry in your
+  Chroma client settings.
+
+---
+
+## License
+
+This project is licensed under the MIT License. See the LICENSE file for details.
+
+This repository references external cybersecurity knowledge sources. These resources retain their own licenses and are not redistributed as part of this repository:
+
+- SigmaHQ Rules — Detection Rule License (DRL) 1.1
+- MITRE ATT&CK® — Creative Commons Attribution 4.0 (CC BY 4.0)
+- NIST SP 800-61 Revision 2 — U.S. Government publication (Public Domain)
